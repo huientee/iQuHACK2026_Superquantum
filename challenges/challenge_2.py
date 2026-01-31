@@ -1,4 +1,9 @@
-from qiskit import *
+from qiskit import QuantumCircuit
+from qiskit.quantum_info import Operator
+from qiskit.synthesis import synth_clifford_depth_lnn
+from qiskit.quantum_info import random_unitary
+from qiskit.circuit.library import UnitaryGate
+from qiskit import transpile
 import numpy as np
 
 qcirc = QuantumCircuit(2)
