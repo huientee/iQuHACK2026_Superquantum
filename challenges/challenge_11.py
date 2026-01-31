@@ -1,5 +1,4 @@
-from qiskit import QuantumCircuit
-from qiskit.visualization import circuit_drawer
+from qiskit import *
 import matplotlib.pyplot as plt
 
 def apply_t_power(qc: QuantumCircuit, q: int, k: int):
