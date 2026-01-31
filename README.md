@@ -1,1 +1,1 @@
-# iQuHACK2026_Superquantum
+# iQuHACK 2026: Superquantum Challenge
