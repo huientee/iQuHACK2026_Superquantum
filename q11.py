@@ -1,5 +1,12 @@
 from qiskit import QuantumCircuit
 from qiskit.visualization import circuit_drawer
+from qiskit import QuantumCircuit, transpile
+from qiskit.circuit import library
+from qiskit.qasm2 import dumps
+from qiskit.quantum_info import SparsePauliOp
+from qiskit.circuit.library import HamiltonianGate, UnitaryGate
+from rmsynth import Circuit, Optimizer, extract_phase_coeffs, synthesize_from_coeffs
+import numpy as np
 import matplotlib.pyplot as plt
 
 def tpower(qc, q, k):
@@ -40,3 +47,14 @@ plt.show()
 
 tcount = qc.count_ops().get("t", 0) + qc.count_ops().get("tdg", 0)
 print("T-count =", tcount)
+
+transpiled = transpile(
+        qc,
+        basis_gates=['h', 't', 'tdg', 'cx', 's', 'sdg'],
+        optimization_level=3
+    )
+
+qasm = dumps(transpiled)
+with open("./circuits/challenge_11.qasm", "w") as f:
+    f.write(qasm)
+print("  Saved: challenge_11.qasm")
