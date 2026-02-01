@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Solve all 11 IQuHACK challenges and write challenge_01.qasm … challenge_11.qasm.
+Solve all IQuHACK challenges and write challenge_01.qasm ... challenge_11.qasm.
 Uses utils.py: rmsynth for diagonals (Ch1,3,4,6,8,9,11); Qiskit for exact pi/7 when available (Ch2,3,4,6) and for Ch7,10.
 Default: real (exact pi/7 via Qiskit when installed) + rmsynth fallback; --rmsynth-only for no Qiskit.
 """
@@ -11,7 +11,7 @@ from utils import GETTERS, count_costs, compute_challenge_norm
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Solve all 11 challenges and write QASM to challenge_qasm/")
+    parser = argparse.ArgumentParser(description="Solve all challenges and write QASM to challenge_qasm/")
     parser.add_argument("--best-efforts", action="store_true", default=True,
                         help="For diagonal challenges, try rmsynth efforts 3,4,5 and keep lowest T-count (default: on)")
     parser.add_argument("--no-best-efforts", action="store_true",

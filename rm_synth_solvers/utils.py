@@ -105,7 +105,7 @@ def rmsynth_circuit_to_qasm(circ, qubit_names: list[str] | None = None) -> str:
             q, k = g.q, g.k % 8
             if k == 0:
                 continue
-            # k=1,2,3,4,5,6,7 --> t/tdg sequences
+            # k=1,2,3,4,5,6,7 → t/tdg sequences
             if k in (1, 2, 5):
                 lines.extend(["t " + qubit_names[q] + ";"] * (1 if k == 1 else (2 if k == 2 else 1)))
             elif k in (3, 6, 7):
@@ -115,7 +115,7 @@ def rmsynth_circuit_to_qasm(circ, qubit_names: list[str] | None = None) -> str:
     return "\n".join(lines)
 
 
-def _optimize_diagonal_circuit(vec: list[int], n: int, effort: int = 5):
+def _optimize_diagonal_circuit(vec: list[int], n: int, effort: int = 5, decoder: str = "auto"):
     """
     Build circuit from Z8 vector, run rmsynth Optimizer if rmcore available,
     optionally T-depth schedule for n=4. Returns rmsynth Circuit.
@@ -124,9 +124,9 @@ def _optimize_diagonal_circuit(vec: list[int], n: int, effort: int = 5):
     circ = synthesize_from_coeffs(vec, n)
     try:
         from rmsynth import Optimizer
-        opt = Optimizer(decoder="auto", effort=effort)
+        opt = Optimizer(decoder=decoder, effort=effort)
         circ, _ = opt.optimize(circ)
-    except ImportError:
+    except (ImportError, Exception):
         pass
     if n == 4:
         try:
@@ -141,16 +141,35 @@ def _optimize_diagonal_circuit(vec: list[int], n: int, effort: int = 5):
     return circ
 
 
-def optimize_diagonal_and_qasm(vec: list[int], n: int, effort: int = 5) -> str:
+def optimize_diagonal_and_qasm(vec: list[int], n: int, effort: int = 5, decoder: str = "auto") -> str:
     """Z8 vector --> rmsynth optimize --> OpenQASM."""
-    circ = _optimize_diagonal_circuit(vec, n, effort=effort)
+    circ = _optimize_diagonal_circuit(vec, n, effort=effort, decoder=decoder)
     return rmsynth_circuit_to_qasm(circ)
 
 
+def optimize_diagonal_and_qasm_all(
+    vec: list[int], n: int,
+    efforts: tuple[int, ...] = (1, 2, 3, 4, 5, 6),
+    decoders: tuple[str, ...] = ("auto", "rpa"),
+) -> list[str]:
+    """Return all unique QASM from (effort, decoder) for use as candidates; pick by norm then T."""
+    seen, out = set(), []
+    for e in efforts:
+        for dec in decoders:
+            try:
+                qasm = optimize_diagonal_and_qasm(vec, n, effort=e, decoder=dec)
+                if qasm and qasm not in seen:
+                    seen.add(qasm)
+                    out.append(qasm)
+            except Exception:
+                continue
+    return out if out else [optimize_diagonal_and_qasm(vec, n, effort=5)]
+
+
 def optimize_diagonal_and_qasm_best(
-    vec: list[int], n: int, efforts: tuple[int, ...] = (3, 4, 5)
+    vec: list[int], n: int, efforts: tuple[int, ...] = (1, 2, 3, 4, 5, 6)
 ) -> str:
-    """Try several efforts; return QASM with lowest T-count (then CNOT)."""
+    """Try several efforts (decoder=auto); return QASM with lowest T-count (then CNOT)."""
     best_qasm, best_t, best_cx = None, float("inf"), float("inf")
     for e in efforts:
         try:
@@ -190,10 +209,10 @@ def _wrap_diagonal_qasm(
 
 
 # -----------------------------------------------------------------------------
-# Qiskit helpers (comparison only; not used as final solution)
+# Qiskit helpers (not used as final solution)
 # -----------------------------------------------------------------------------
 def _qiskit_gates_to_qasm(qc) -> list[str]:
-    """Qiskit circuit --> list of gate lines (no header)."""
+    """Qiskit circuit → list of gate lines (no header)."""
     from qiskit.qasm2 import dumps
     lines = []
     for ln in dumps(qc).split("\n"):
@@ -207,7 +226,7 @@ def _qiskit_gates_to_qasm(qc) -> list[str]:
 
 
 def get_qiskit_ch02_qasm() -> str | None:
-    """Controlled-R_y(pi/7) via Qiskit transpile (comparison only)."""
+    """Controlled-Ry(π/7) via Qiskit transpile (comparison only)."""
     try:
         from qiskit import QuantumCircuit
         from qiskit.transpiler import transpile
@@ -226,8 +245,8 @@ def get_qiskit_ch02_qasm() -> str | None:
 
 
 # Challenge 7: state preparation
-# Design U that maps |00⟩ --> target state (random_statevector(4, seed=42))
-# Target |psi> in computational basis |00>, |01>, |10>, |11>
+# Design U that maps |00⟩ to the target state (random_statevector(4, seed=42))
+# Target |psi> in computational basis.
 _CH07_STATE_PDF = [
     0.1061479384 - 0.6796414670j,   # |00>
     -0.3622775887 - 0.4536131360j, # |01>
@@ -265,9 +284,9 @@ def get_qiskit_ch07_qasm() -> str | None:
 def get_qiskit_ch07_schmidt_qasm() -> str | None:
     """
     Challenge 7: state preparation using Schmidt decomposition.
-    Target: U|00⟩ = |psi⟩ with |psi⟩ from challenge.pdf (random_statevector(4, seed=42)).
-    Schmidt (q1|q0): |psi⟩ = U_q1 (s0|00⟩ + s1|11⟩) V*_q0
-    Circuit: R_y(θ,1), CX(1,0), UnitaryGate(U) on [1], UnitaryGate(V*) on [0].
+    Target: U|00⟩ = |psi⟩ with |psi⟩ from docs (random_statevector(4, seed=42)).
+    Schmidt (q_1|q_0): |psi⟩ = U_q1 (s_0|00⟩ + s_1|11⟩) V*_q0
+    Circuit: Ry(θ,1), CX(1,0), UnitaryGate(U) on [1], UnitaryGate(V*) on [0].
     Transpile to Clifford+T (h, t, tdg, cx); try multiple seeds, return best T-count QASM.
     """
     try:
@@ -357,7 +376,7 @@ def _qiskit_diagonal_zz_pi7_qasm(prefix_gates: list[str], suffix_gates: list[str
         from qiskit import QuantumCircuit
         from qiskit.circuit.library import Diagonal
         from qiskit.transpiler import transpile
-        # Diagonal phases [π/7, -π/7, -π/7, π/7] → complex amplitudes (basis |00⟩,|01⟩,|10⟩,|11⟩)
+        # Diagonal phases [pi/7, -pi/7, -pi/7, pi/7] --> complex amplitudes (basis |00⟩,|01⟩,|10⟩,|11⟩)
         diag = [cmath.exp(1j * PI / 7), cmath.exp(-1j * PI / 7), cmath.exp(-1j * PI / 7), cmath.exp(1j * PI / 7)]
         best = None
         for opt in (3, 2, 1):
@@ -394,31 +413,37 @@ def get_qiskit_ch06_qasm() -> str | None:
 
 
 def _qiskit_unitary_to_qasm(U, n_qubits: int) -> str | None:
-    """Synthesize exact unitary U (2^n \times 2^n) to Clifford+T QASM via Qiskit; return full QASM or None."""
+    """Synthesize exact unitary U to Clifford+T QASM via Qiskit; return single best by T then CNOT."""
+    all_q = _qiskit_unitary_to_qasm_all(U, n_qubits)
+    if not all_q:
+        return None
+    best = min(all_q, key=lambda q: count_costs(q))
+    return best
+
+
+def _qiskit_unitary_to_qasm_all(U, n_qubits: int) -> list[str]:
+    """Return all successful Clifford+T QASM variants (different reps/opt) for picking by norm then T."""
+    out = []
     try:
         from qiskit import QuantumCircuit
         from qiskit.transpiler import transpile
-        import numpy as np
         qc = QuantumCircuit(n_qubits)
         qc.unitary(U, list(range(n_qubits)))
-        best = None
-        for reps in (4, 5, 3, 6) if n_qubits > 2 else (4, 3, 5):
+        header = QASM_HEADER_4 if n_qubits == 4 else QASM_HEADER_2
+        reps_range = (4, 5, 3, 6, 2, 7, 1) if n_qubits > 2 else (4, 3, 5, 2, 6, 1)
+        for reps in reps_range:
             for opt in (3, 2, 1):
                 try:
                     qc_t = qc.decompose(reps=reps)
                     qc_t = transpile(qc_t, basis_gates=["cx", "h", "t", "tdg"], optimization_level=opt)
-                    qasm = "\n".join(
-                        (QASM_HEADER_4 if n_qubits == 4 else QASM_HEADER_2)
-                        + _qiskit_gates_to_qasm(qc_t)
-                    )
-                    t, cx = count_costs(qasm)
-                    if best is None or (t, cx) < (best[0], best[1]):
-                        best = (t, cx, qasm)
+                    qasm = "\n".join(header + _qiskit_gates_to_qasm(qc_t))
+                    if qasm and qasm not in out:
+                        out.append(qasm)
                 except Exception:
                     continue
-        return best[2] if best else None
     except Exception:
-        return None
+        pass
+    return out
 
 
 def get_qiskit_ch08_qasm() -> str | None:
@@ -431,7 +456,7 @@ def get_qiskit_ch08_qasm() -> str | None:
 
 
 def get_qiskit_ch09_qasm() -> str | None:
-    """Structured unitary 2 exact: build target from PDF and synthesize to Clifford+T."""
+    """Structured unitary 2 exact: build target from challenge docs and synthesize to Clifford+T."""
     try:
         U = _target_unitary_ch9()
         return _qiskit_unitary_to_qasm(U, 2)
@@ -440,7 +465,7 @@ def get_qiskit_ch09_qasm() -> str | None:
 
 
 def get_qiskit_ch11_qasm() -> str | None:
-    """4-qubit diagonal exact: build target from PDF and synthesize to Clifford+T."""
+    """4-qubit diagonal exact: build target from challenge docs and synthesize to Clifford+T."""
     try:
         U = _target_unitary_ch11()
         return _qiskit_unitary_to_qasm(U, 4)
@@ -451,14 +476,14 @@ def get_qiskit_ch11_qasm() -> str | None:
 # -----------------------------------------------------------------------------
 # Challenge getters
 # -----------------------------------------------------------------------------
-# Z \otimes Z eigenvalues: +1 on |00⟩,|11⟩ and -1 on |01⟩,|10⟩--> phases [pi/7, -pi/7, -pi/7, pi/7]
+# Z \otimes Z eigenvalues: +1 on |00⟩,|11⟩ and -1 on |01⟩,|10⟩ --> phases [pi/7, -pi/7, -pi/7, pi/7]
 _PHASES_ZZ_PI7 = [PI / 7, -PI / 7, -PI / 7, PI / 7]
-# CRz(pi/7) diagonal: [0, 0, -π/14, π/14] (basis |00⟩,|01⟩,|10⟩,|11⟩)
+# CRz(pi/7) diagonal: [0, 0, -pi/14, pi/14] (basis |00⟩,|01⟩,|10⟩,|11⟩)
 _CRZ_PI7_PHASES = [0.0, 0.0, -PI / 14, PI / 14]
 
 
 def get_challenge_01_qasm(*, use_best_efforts: bool = False, **kwargs) -> str:
-    """Controlled-Y (control q1, target q0 per PDF): H(q0)·CZ·H(q0) or S†(q0)·CX(q1,q0)·S(q0)."""
+    """Controlled-Y (control q1, target q0 per challenge): H(q0) \cdot CZ \cdot H(q0) or S^{\dagger}(q0) \cdot CX(q1,q0) \cdot S(q0)."""
     vec = phase_vector_from_diagonal([0.0, 0.0, 0.0, PI], 2)
     diag_qasm = optimize_diagonal_and_qasm_best(vec, 2) if use_best_efforts else optimize_diagonal_and_qasm(vec, 2)
     qasm_a = _wrap_diagonal_qasm(diag_qasm, ["h q[0];"], ["h q[0];"])
@@ -469,108 +494,113 @@ def get_challenge_01_qasm(*, use_best_efforts: bool = False, **kwargs) -> str:
 
 
 def _pick_qasm_by_min_norm(challenge_num: int, candidates: list[str]) -> str:
-    """Of candidate QASM strings, return the one with smallest norm (d); tie-break by first."""
+    """Of candidate QASM strings, return the one with smallest norm (d)); tie-break by T then CNOT."""
     if not candidates:
         return ""
-    best_qasm, best_norm = None, float("inf")
+    best_qasm, best_norm, best_t, best_cx = None, float("inf"), float("inf"), float("inf")
     for qasm in candidates:
         if not qasm:
             continue
         n = compute_challenge_norm(challenge_num, qasm)
         norm_val = n if n is not None else float("inf")
-        if norm_val < best_norm:
-            best_norm, best_qasm = norm_val, qasm
+        t, cx = count_costs(qasm)
+        if norm_val < best_norm or (abs(norm_val - best_norm) < 1e-9 and (t, cx) < (best_t, best_cx)):
+            best_norm, best_t, best_cx, best_qasm = norm_val, t, cx, qasm
     return best_qasm if best_qasm else candidates[0]
 
 
 def get_challenge_02_qasm(*, use_best_efforts: bool = False, use_real: bool = True, **kwargs) -> str:
-    """Controlled-Ry(pi/7): when use_real pick candidate with smallest norm; else rmsynth."""
+    """Controlled-Ry(pi/7): minimize norm then T; use all Qiskit variants + rmsynth variants."""
     vec = phase_vector_from_diagonal(_CRZ_PI7_PHASES, 2)
     if all(v == 0 for v in vec):
         vec = [0, 0, 1]
     rmsynth_q = _wrap_diagonal_qasm(optimize_diagonal_and_qasm_best(vec, 2) if use_best_efforts else optimize_diagonal_and_qasm(vec, 2), ["h q[1];"], ["h q[1];"])
     if use_real:
-        candidates = [get_qiskit_ch02_qasm(), _qiskit_unitary_to_qasm(_target_unitary_ch2(), 2), rmsynth_q]
-        chosen = _pick_qasm_by_min_norm(2, [q for q in candidates if q])
+        U2 = _target_unitary_ch2()
+        candidates = [get_qiskit_ch02_qasm(), *_qiskit_unitary_to_qasm_all(U2, 2)]
+        candidates += [_wrap_diagonal_qasm(q, ["h q[1];"], ["h q[1];"]) for q in optimize_diagonal_and_qasm_all(vec, 2)]
+        candidates = [q for q in candidates if q]
+        chosen = _pick_qasm_by_min_norm(2, candidates)
         if chosen:
             return chosen
     return rmsynth_q
 
 
 def get_challenge_03_qasm(*, use_best_efforts: bool = False, use_real: bool = True, **kwargs) -> str:
-    """exp(i pi/7 Z \otimes Z): when use_real pick candidate with smallest norm; else rmsynth."""
+    """exp(i pi/7 Z \otimes Z): minimize norm then T; all Qiskit variants + rmsynth variants."""
     vec = phase_vector_from_diagonal(_PHASES_ZZ_PI7, 2)
     rmsynth_q = optimize_diagonal_and_qasm_best(vec, 2) if use_best_efforts else optimize_diagonal_and_qasm(vec, 2)
     if use_real:
-        candidates = [get_qiskit_ch03_qasm(), _qiskit_unitary_to_qasm(_target_unitary_ch3(), 2), rmsynth_q]
-        chosen = _pick_qasm_by_min_norm(3, [q for q in candidates if q])
+        U3 = _target_unitary_ch3()
+        candidates = [get_qiskit_ch03_qasm(), *_qiskit_unitary_to_qasm_all(U3, 2)] + optimize_diagonal_and_qasm_all(vec, 2)
+        candidates = [q for q in candidates if q]
+        chosen = _pick_qasm_by_min_norm(3, candidates)
         if chosen:
             return chosen
     return rmsynth_q
 
 
 def get_challenge_04_qasm(*, use_best_efforts: bool = False, use_real: bool = True, **kwargs) -> str:
-    """exp(i pi/7 (XX + YY)): when use_real pick candidate with smallest norm; else rmsynth."""
+    """exp(i pi/7 (XX + YY)): minimize norm then T; all Qiskit + rmsynth variants."""
     vec = phase_vector_from_diagonal(_PHASES_ZZ_PI7, 2)
     rmsynth_q = _wrap_diagonal_qasm(optimize_diagonal_and_qasm_best(vec, 2) if use_best_efforts else optimize_diagonal_and_qasm(vec, 2), ["h q[1];"], ["h q[1];"])
     if use_real:
-        candidates = [get_qiskit_ch04_qasm(), _qiskit_unitary_to_qasm(_target_unitary_ch4(), 2), rmsynth_q]
-        chosen = _pick_qasm_by_min_norm(4, [q for q in candidates if q])
+        U4 = _target_unitary_ch4()
+        candidates = [get_qiskit_ch04_qasm(), *_qiskit_unitary_to_qasm_all(U4, 2)]
+        candidates += [_wrap_diagonal_qasm(q, ["h q[1];"], ["h q[1];"]) for q in optimize_diagonal_and_qasm_all(vec, 2)]
+        candidates = [q for q in candidates if q]
+        chosen = _pick_qasm_by_min_norm(4, candidates)
         if chosen:
             return chosen
     return rmsynth_q
 
 
 def get_challenge_05_qasm(*, use_best_efforts: bool = False, **kwargs) -> str:
-    """exp(i pi/4 (XX + YY + ZZ)) = e^{i pi/4} SWAP; implement SWAP (0 T, 3 CNOTs)."""
+    """exp(i pi/4 (XX + YY + ZZ)) = e^{ipi/4} SWAP; implement SWAP (0 T, 3 CNOTs)."""
     return "\n".join(QASM_HEADER_2 + ["cx q[0], q[1];", "cx q[1], q[0];", "cx q[0], q[1];"])
 
 
 def get_challenge_06_qasm(*, use_best_efforts: bool = False, use_real: bool = True, **kwargs) -> str:
-    """exp(i pi/7 (XX + ZI + IZ)): when use_real pick candidate with smallest norm; else rmsynth."""
+    """exp(i pi/7 (XX + ZI + IZ)): minimize norm then T; all Qiskit + rmsynth variants."""
     vec = phase_vector_from_diagonal(_PHASES_ZZ_PI7, 2)
     rmsynth_q = _wrap_diagonal_qasm(optimize_diagonal_and_qasm_best(vec, 2) if use_best_efforts else optimize_diagonal_and_qasm(vec, 2), ["h q[0];"], ["h q[0];"])
     if use_real:
-        candidates = [get_qiskit_ch06_qasm(), _qiskit_unitary_to_qasm(_target_unitary_ch6(), 2), rmsynth_q]
-        chosen = _pick_qasm_by_min_norm(6, [q for q in candidates if q])
+        U6 = _target_unitary_ch6()
+        candidates = [get_qiskit_ch06_qasm(), *_qiskit_unitary_to_qasm_all(U6, 2)]
+        candidates += [_wrap_diagonal_qasm(q, ["h q[0];"], ["h q[0];"]) for q in optimize_diagonal_and_qasm_all(vec, 2)]
+        candidates = [q for q in candidates if q]
+        chosen = _pick_qasm_by_min_norm(6, candidates)
         if chosen:
             return chosen
     return rmsynth_q
 
 
 def get_challenge_07_qasm(*, use_best_efforts: bool = False, use_real: bool = True, **kwargs) -> str:
-    """
-    Challenge 7: state preparation. Prefer Schmidt decomposition (PDF-indicated approach).
-    When use_real: try Schmidt first, then initialize, unitary synthesis, fixed; pick smallest norm.
-    """
+    """Ch7 state prep: minimize norm then T; Schmidt, initialize, all unitary variants, fixed."""
     if use_real:
-        # Schmidt decomposition (approach): primary candidate
+        U7 = _target_unitary_ch7()
         candidates = [
             get_qiskit_ch07_schmidt_qasm(),
             get_qiskit_ch07_qasm(),
-            _qiskit_unitary_to_qasm(_target_unitary_ch7(), 2),
+            *_qiskit_unitary_to_qasm_all(U7, 2),
             CH07_FIXED_QASM,
         ]
-        chosen = _pick_qasm_by_min_norm(7, [q for q in candidates if q])
+        candidates = [q for q in candidates if q]
+        chosen = _pick_qasm_by_min_norm(7, candidates)
         if chosen:
             return chosen
     return CH07_FIXED_QASM
 
 
 def get_challenge_08_qasm(*, use_best_efforts: bool = False, use_real: bool = True, **kwargs) -> str:
-    """2-qubit QFT (ω=i): when use_real pick candidate with smallest norm; else rmsynth."""
+    """2-qubit QFT (omega=i): minimize norm then T; all Qiskit variants + rmsynth variants."""
     if use_real:
-        candidates = [
-            get_qiskit_ch08_qasm(),
-            _qiskit_unitary_to_qasm(_target_unitary_ch8(), 2),
-        ]
-        rmsynth_qasm = _wrap_diagonal_qasm(
-            optimize_diagonal_and_qasm_best(phase_vector_from_diagonal([0.0, 0.0, 0.0, PI / 2], 2), 2) if use_best_efforts else optimize_diagonal_and_qasm(phase_vector_from_diagonal([0.0, 0.0, 0.0, PI / 2], 2), 2),
-            ["h q[0];", "h q[1];"],
-            ["cx q[0], q[1];", "cx q[1], q[0];", "cx q[0], q[1];"],
-        )
-        candidates.append(rmsynth_qasm)
-        chosen = _pick_qasm_by_min_norm(8, [q for q in candidates if q])
+        vec8 = phase_vector_from_diagonal([0.0, 0.0, 0.0, PI / 2], 2)
+        prefix, suffix = ["h q[0];", "h q[1];"], ["cx q[0], q[1];", "cx q[1], q[0];", "cx q[0], q[1];"]
+        candidates = [get_qiskit_ch08_qasm(), *_qiskit_unitary_to_qasm_all(_target_unitary_ch8(), 2)]
+        candidates += [_wrap_diagonal_qasm(q, prefix, suffix) for q in optimize_diagonal_and_qasm_all(vec8, 2)]
+        candidates = [q for q in candidates if q]
+        chosen = _pick_qasm_by_min_norm(8, candidates)
         if chosen:
             return chosen
     vec = phase_vector_from_diagonal([0.0, 0.0, 0.0, PI / 2], 2)
@@ -583,18 +613,14 @@ def get_challenge_08_qasm(*, use_best_efforts: bool = False, use_real: bool = Tr
 
 
 def get_challenge_09_qasm(*, use_best_efforts: bool = False, use_real: bool = True, **kwargs) -> str:
-    """Structured unitary 2: when use_real pick candidate with smallest norm; else rmsynth."""
+    """Structured unitary 2: minimize norm then T; all Qiskit + rmsynth variants."""
     if use_real:
-        candidates = [
-            get_qiskit_ch09_qasm(),
-            _qiskit_unitary_to_qasm(_target_unitary_ch9(), 2),
-        ]
-        rmsynth_qasm = _wrap_diagonal_qasm(
-            optimize_diagonal_and_qasm_best(phase_vector_from_diagonal([0.0, 0.0, 0.0, PI / 4], 2), 2) if use_best_efforts else optimize_diagonal_and_qasm(phase_vector_from_diagonal([0.0, 0.0, 0.0, PI / 4], 2), 2),
-            ["h q[0];", "cx q[0], q[1];"], ["cx q[0], q[1];", "h q[0];"],
-        )
-        candidates.append(rmsynth_qasm)
-        chosen = _pick_qasm_by_min_norm(9, [q for q in candidates if q])
+        vec9 = phase_vector_from_diagonal([0.0, 0.0, 0.0, PI / 4], 2)
+        prefix, suffix = ["h q[0];", "cx q[0], q[1];"], ["cx q[0], q[1];", "h q[0];"]
+        candidates = [get_qiskit_ch09_qasm(), *_qiskit_unitary_to_qasm_all(_target_unitary_ch9(), 2)]
+        candidates += [_wrap_diagonal_qasm(q, prefix, suffix) for q in optimize_diagonal_and_qasm_all(vec9, 2)]
+        candidates = [q for q in candidates if q]
+        chosen = _pick_qasm_by_min_norm(9, candidates)
         if chosen:
             return chosen
     vec = phase_vector_from_diagonal([0.0, 0.0, 0.0, PI / 4], 2)
@@ -603,17 +629,19 @@ def get_challenge_09_qasm(*, use_best_efforts: bool = False, use_real: bool = Tr
 
 
 def get_challenge_10_qasm(*, use_best_efforts: bool = False, use_real: bool = True, **kwargs) -> str:
-    """Random unitary: when use_real pick candidate with smallest norm; else fixed fallback."""
+    """Random unitary: minimize norm then T; all Qiskit variants + fixed."""
     if use_real:
-        candidates = [get_qiskit_ch10_qasm(), _qiskit_unitary_to_qasm(_target_unitary_ch10(), 2), CH10_FIXED_QASM]
-        chosen = _pick_qasm_by_min_norm(10, [q for q in candidates if q])
+        U10 = _target_unitary_ch10()
+        candidates = [get_qiskit_ch10_qasm(), *_qiskit_unitary_to_qasm_all(U10, 2), CH10_FIXED_QASM]
+        candidates = [q for q in candidates if q]
+        chosen = _pick_qasm_by_min_norm(10, candidates)
         if chosen:
             return chosen
     return CH10_FIXED_QASM
 
 
 def get_challenge_11_qasm(*, use_best_efforts: bool = False, use_real: bool = True, **kwargs) -> str:
-    """4-qubit diagonal psi(x): when use_real pick candidate with smallest norm; else rmsynth."""
+    """4-qubit diagonal psi(x) from challenge: minimize norm then T; all Qiskit + rmsynth variants."""
     if use_real:
         phases = [
             0, PI, 5 * PI / 4, 7 * PI / 4,
@@ -622,12 +650,8 @@ def get_challenge_11_qasm(*, use_best_efforts: bool = False, use_real: bool = Tr
             3 * PI / 2, 3 * PI / 2, 7 * PI / 4, 5 * PI / 4,
         ]
         vec = phase_vector_from_diagonal(phases, 4)
-        rmsynth_qasm = optimize_diagonal_and_qasm_best(vec, 4) if use_best_efforts else optimize_diagonal_and_qasm(vec, 4)
-        candidates = [
-            get_qiskit_ch11_qasm(),
-            _qiskit_unitary_to_qasm(_target_unitary_ch11(), 4),
-            rmsynth_qasm,
-        ]
+        candidates = [get_qiskit_ch11_qasm(), *_qiskit_unitary_to_qasm_all(_target_unitary_ch11(), 4)]
+        candidates += optimize_diagonal_and_qasm_all(vec, 4)
         candidates = [q for q in candidates if q]
         chosen = _pick_qasm_by_min_norm(11, candidates)
         if chosen:
@@ -663,11 +687,10 @@ GETTERS = {
 # -----------------------------------------------------------------------------
 # Operator norm distance
 # -----------------------------------------------------------------------------
-# d operator norm == max singular value
 
 
 def _target_unitary_ch1():
-    """Controlled-Y from challenge."""
+    """Controlled-Y from PDF."""
     import numpy as np
     U = np.eye(4, dtype=complex)
     U[2, 2], U[2, 3] = 0, -1j
@@ -678,7 +701,7 @@ def _target_unitary_ch1():
 def _target_unitary_ch2():
     """Controlled-Ry(pi/7) exact."""
     import numpy as np
-    c, s = np.cos(PI / 14), np.sin(PI / 14)  # Ry(theta) has cos(theta/2), sin(theta/2)
+    c, s = np.cos(PI / 14), np.sin(PI / 14)  # Ry(θ) has cos(θ/2), sin(θ/2)
     U = np.eye(4, dtype=complex)
     U[2, 2], U[2, 3] = c, -s
     U[3, 2], U[3, 3] = s, c
@@ -686,7 +709,7 @@ def _target_unitary_ch2():
 
 
 def _target_unitary_ch3():
-    """exp(i pi/7 Z \otimes Z): diagonal [e^{i pi/7}, e^{-i pi/7}, e^{-i pi/7}, e^{i pi/7}]."""
+    """exp(i pi/7 Z⊗Z): diagonal [e^{i pi/7}, e^{-i pi/7}, e^{-i pi/7}, e^{i pi/7}]."""
     import numpy as np
     import cmath
     d = [cmath.exp(1j * PI / 7), cmath.exp(-1j * PI / 7), cmath.exp(-1j * PI / 7), cmath.exp(1j * PI / 7)]
@@ -694,7 +717,7 @@ def _target_unitary_ch3():
 
 
 def _target_unitary_ch4():
-    """exp(i pi/7 (XX+YY)) = (I \otimes H) exp(i pi/7 ZZ) (I \otimes H)."""
+    """exp(i pi/7 (XX + YY)) = (I \otimes H) exp(i pi/7 ZZ) (I \otimes H)."""
     import numpy as np
     H2 = np.array([[1, 1], [1, -1]], dtype=complex) / np.sqrt(2)
     IH = np.kron(np.eye(2), H2)
@@ -703,7 +726,7 @@ def _target_unitary_ch4():
 
 
 def _target_unitary_ch5():
-    """exp(i pi/4 (XX+YY+ZZ)) = e^{i pi/4} SWAP."""
+    """exp(i pi/4 (XX + YY + ZZ)) = e^{i pi/4} SWAP."""
     import numpy as np
     import cmath
     SWAP = np.array([[1, 0, 0, 0], [0, 0, 1, 0], [0, 1, 0, 0], [0, 0, 0, 1]], dtype=complex)
@@ -711,7 +734,7 @@ def _target_unitary_ch5():
 
 
 def _target_unitary_ch6():
-    """exp(i pi/7 (XX+ZI+IZ)): (H \otimes I) exp(i pi/7 ZZ) (H \otimes I)."""
+    """exp(i pi/7 (XX + ZI + IZ)): (H \otimes I) exp(i pi/7 ZZ) (H⊗I)."""
     import numpy as np
     H2 = np.array([[1, 1], [1, -1]], dtype=complex) / np.sqrt(2)
     HI = np.kron(H2, np.eye(2))
@@ -735,7 +758,7 @@ def _target_unitary_ch7():
 
 
 def _target_unitary_ch8():
-    """2-qubit QFT (omega=i)."""
+    """2-qubit QFT (omega=i): (1/2)[[1,1,1,1],[1,i,-1,-i],[1,-1,1,-1],[1,-i,-1,i]]."""
     import numpy as np
     j = 1j
     U = np.array([
@@ -775,9 +798,9 @@ def _target_unitary_ch10():
 
 
 def _target_unitary_ch11():
-    """4-qubit diagonal U|x⟩ = e^{i psi(x)}|x⟩ with psi(x) from challenge (little-endian x)."""
+    """4-qubit diagonal U|x⟩ = e^{i phi(x)}|x⟩ with φ(x) from challenge (little-endian x)."""
     import numpy as np
-    # psi(0000)=0, psi(0001)=pi, psi(0010)=5pi/4, psi(0011)=7pi/4, psi(0100)=5pi/4, ...
+    # φ(0000)=0, φ(0001)=pi, φ(0010)=5 pi/4, φ(0011)=7 pi/4, φ(0100)=5 pi/4, ...
     phases = [
         0, PI, 5 * PI / 4, 7 * PI / 4,
         5 * PI / 4, 7 * PI / 4, 3 * PI / 2, 3 * PI / 2,
@@ -807,24 +830,34 @@ _TARGET_UNITARY = {
 def _operator_norm(A):
     """Spectral (operator) norm = largest singular value."""
     import numpy as np
-    return float(np.linalg.norm(A, 2))  # 2-norm for matrices is spectral norm
+    return float(np.linalg.norm(A, 2)) # 2-norm for matrices is spectral norm
 
 
 def _norm_distance_pdf(U_target, U_impl):
-    """d definition from PDF."""
+    """Norm distance d (need to take phase into account)"""
     import numpy as np
     best = float("inf")
-    for phi in np.linspace(0, 2 * np.pi, 360, endpoint=False):
+    for phi in np.linspace(0, 2 * np.pi, 720, endpoint=False):
         diff = U_target - np.exp(1j * phi) * U_impl
         n = _operator_norm(diff)
         if n < best:
             best = n
+    try:
+        from scipy.optimize import minimize_scalar
+        def obj(phi):
+            diff = U_target - np.exp(1j * phi) * U_impl
+            return _operator_norm(diff)
+        res = minimize_scalar(obj, bounds=(0, 2 * np.pi), method="bounded")
+        if res.success and res.fun < best:
+            best = res.fun
+    except Exception:
+        pass
     return best
 
 
 def compute_challenge_norm(challenge_num: int, qasm: str) -> float | None:
     """
-    Compute operator norm distance d.
+    Compute operator norm distance d per challenge.
     U = exact target unitary, \tilde{U} = unitary implemented by the QASM circuit.
     Returns None if Qiskit unavailable or circuit has wrong number of qubits.
     """
