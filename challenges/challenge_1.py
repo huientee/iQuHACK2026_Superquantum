@@ -1,9 +1,6 @@
-from qiskit import QuantumCircuit
-from qiskit.quantum_info import Operator
-from qiskit.synthesis import synth_clifford_depth_lnn
-from qiskit.quantum_info import random_unitary
-from qiskit.circuit.library import UnitaryGate
-from qiskit import transpile
+from qiskit import QuantumCircuit, transpile
+from qiskit.circuit import library
+from qiskit.qasm2 import dumps
 import numpy as np
 
 qcirc = QuantumCircuit(2)
@@ -14,7 +11,7 @@ qcirc.cy(0, 1)
 transpiled = transpile(
     qcirc,
     basis_gates=['h', 't', 'tdg', 'cx', 's', 'sdg'],
-    optimization_level=1
+    optimization_level=3
 )
 
 # Get total t/tdg
@@ -24,3 +21,9 @@ print(f"Total T Count: {tc}")
 
 print(qcirc.draw())
 print(transpiled.draw())
+
+qasm = dumps(transpiled)
+with open("../circuits/challenge_1.qasm", "w") as f:
+    f.write(qasm)
+    
+print("Saved: challenge_1.qasm")

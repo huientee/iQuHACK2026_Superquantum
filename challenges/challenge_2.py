@@ -1,9 +1,7 @@
-from qiskit import QuantumCircuit
-from qiskit.quantum_info import Operator
-from qiskit.synthesis import synth_clifford_depth_lnn
-from qiskit.quantum_info import random_unitary
-from qiskit.circuit.library import UnitaryGate
-from qiskit import transpile
+from qiskit import QuantumCircuit, transpile
+from qiskit.circuit import library
+from qiskit.qasm2 import dumps
+from rmsynth import Circuit, Optimizer, extract_phase_coeffs, synthesize_from_coeffs
 import numpy as np
 
 qcirc = QuantumCircuit(2)
@@ -14,7 +12,7 @@ qcirc.cry(np.pi/7, 0, 1)
 transpiled = transpile(
     qcirc,
     basis_gates=['h', 't', 'tdg', 'cx', 's', 'sdg'],
-    optimization_level=1
+    optimization_level=3
 )
 
 # Get total t/tdg
